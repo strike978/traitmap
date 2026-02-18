@@ -218,7 +218,11 @@ ref_pca_result = pca.fit_transform(df_ref_scaled)
 # Create PCA dataframe with reference samples
 pca_df = pd.DataFrame(ref_pca_result, columns=[
                       f'PC{i+1}' for i in range(n_components)])
-pca_df['group'] = df_ref_only['group'].values
+pca_df['group'] = df_ref_only.apply(
+    lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
+        row.get('group_full', '')).strip() != '' else row['group'],
+    axis=1
+)
 pca_df['individual'] = df_ref_only['individual'].values
 pca_df['source'] = df_ref_only['__source__'].values
 
@@ -256,6 +260,7 @@ def format_admixture_tooltip(row):
     ancestry_values.sort(key=lambda x: x[1], reverse=True)
 
     tooltip_parts = [f"{comp}: {pct:.1f}%" for comp, pct in ancestry_values]
+    # No need to check for group_full, group already contains full name if available
     return "<br>".join(tooltip_parts)
 
 
