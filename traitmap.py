@@ -1,6 +1,8 @@
 # --- TraitMap Title and Dataset Info ---
 import plotly.express as px
 from sklearn.decomposition import PCA
+
+from sklearn.manifold import MDS
 import pandas as pd
 import streamlit as st
 from sklearn.impute import SimpleImputer
@@ -10,7 +12,7 @@ st.set_page_config(
     page_title="TraitMap: Trait-Based Ancestry Explorer", layout="wide")
 st.title("TraitMap: Trait-Based Ancestry Explorer")
 st.markdown("""
-**Reference samples:** This PCA includes individuals from the 1000 Genomes, SGDP, and HGDP datasets.  
+**Reference samples:** This PCA includes individuals from the 1000 Genomes, SGDP, and HGDP datasets.
 You can find the reference genotype data [here](https://docs.google.com/spreadsheets/d/1086enwO19h-ruj61SxqLnvn-IXtMRbG50VOCuR-5xg0/edit?gid=1970300111#gid=1970300111).
 
 **Important note:** This site analyzes just 128 SNPs, each linked to specific genetic traits. It does not use genome-wide data and cannot provide a complete picture of your ancestry. The results show patterns based on trait-associated markers only, not a full ancestry breakdown.
@@ -86,7 +88,16 @@ else:
     ]
 
 # Add interactive filtering controls in sidebar
+
 st.sidebar.header("Display Options")
+
+# Add radio to select dimensionality reduction method
+dimred_method = st.sidebar.radio(
+    "Visualization method:",
+    ["PCA", "Population Distance"],
+    index=0,
+    key="viz_method_radio"
+)
 
 # Add checkboxes to show/hide by dominant ancestry
 show_dominant_ancestry = st.sidebar.checkbox(
@@ -180,21 +191,41 @@ df_ref_only = df[df['__source__'] == 'existing'].copy()
 geno_cols = [col for col in df_ref_only.columns if col not in [
     'source', 'group', 'group_full', 'individual', '__source__']]
 
-# Encode reference genotypes - only for columns with some data
-df_ref_encoded = df_ref_only.copy()
+
+# Vectorized genotype dosage encoding
 ref_alleles = {}
 for col in geno_cols:
-    if not df_ref_only[col].isna().all():  # Skip columns with all NaN
+    if not df_ref_only[col].isna().all():
         alleles = df_ref_only[col].dropna().astype(str).str.cat()
         if alleles:
             ref_allele = max(set(alleles), key=alleles.count)
             ref_alleles[col] = ref_allele
         else:
             ref_alleles[col] = None
-        df_ref_encoded[col] = df_ref_only[col].apply(
-            lambda g: encode_genotype_dosage(g, ref_allele))
     else:
         ref_alleles[col] = None
+
+
+def encode_geno_vec(geno_col, ref_allele):
+    # geno_col: pd.Series of genotypes (str)
+    # ref_allele: str or None
+    arr = geno_col.values
+    # Only process non-null and string of length 2
+    mask = pd.notnull(arr) & (pd.Series(arr).astype(str).str.len() == 2).values
+    out = np.full(arr.shape, np.nan)
+    if ref_allele is None:
+        # Use first allele if available
+        ref_allele = None
+    for i, val in enumerate(arr):
+        if mask[i]:
+            ra = ref_allele if ref_allele is not None else str(val)[0]
+            out[i] = sum(1 for a in str(val) if a != ra)
+    return out
+
+
+df_ref_encoded = df_ref_only.copy()
+for col in geno_cols:
+    df_ref_encoded[col] = encode_geno_vec(df_ref_only[col], ref_alleles[col])
 
 # Impute and scale reference data
 df_ref_pca = df_ref_encoded[geno_cols].copy()
@@ -210,24 +241,35 @@ scaler = StandardScaler()
 df_ref_scaled = pd.DataFrame(
     scaler.fit_transform(df_ref_imputed), columns=valid_cols)
 
-# Train PCA on reference data only
-n_components = 2
-pca = PCA(n_components=n_components)
-ref_pca_result = pca.fit_transform(df_ref_scaled)
 
-# Create PCA dataframe with reference samples
-pca_df = pd.DataFrame(ref_pca_result, columns=[
-                      f'PC{i+1}' for i in range(n_components)])
-pca_df['group'] = df_ref_only.apply(
-    lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
-        row.get('group_full', '')).strip() != '' else row['group'],
-    axis=1
-)
-pca_df['individual'] = df_ref_only['individual'].values
-pca_df['source'] = df_ref_only['__source__'].values
+# --- Dimensionality reduction: PCA or Dendrogram (only one runs) ---
+n_components = 2
+ref_pca_result = None
+if dimred_method == "PCA":
+    pca = PCA(n_components=n_components)
+    ref_pca_result = pca.fit_transform(df_ref_scaled)
+
+# Create base dataframe for both methods
+base_df = pd.DataFrame({
+    'group': df_ref_only.apply(
+        lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
+            row.get('group_full', '')).strip() != '' else row['group'],
+        axis=1
+    ),
+    'individual': df_ref_only['individual'].values,
+    'source': df_ref_only['__source__'].values
+})
+
+# Add PCA coordinates (only fill the one in use)
+if ref_pca_result is not None:
+    base_df['PC1'] = ref_pca_result[:, 0]
+    base_df['PC2'] = ref_pca_result[:, 1]
+else:
+    base_df['PC1'] = np.nan
+    base_df['PC2'] = np.nan
 
 # Merge with admixture data
-pca_df = pca_df.merge(
+base_df = base_df.merge(
     admix_data[['individual'] + ancestry_components],
     on='individual',
     how='left'
@@ -244,141 +286,285 @@ def get_dominant_ancestry(row):
     return 'Unknown'
 
 
-pca_df['dominant_ancestry'] = pca_df.apply(get_dominant_ancestry, axis=1)
+base_df['dominant_ancestry'] = base_df.apply(get_dominant_ancestry, axis=1)
 
 # Format admixture data for hover tooltip (show all non-zero components)
 
 
 def format_admixture_tooltip(row):
-    # Get all ancestry components > 0 to show complete breakdown
     ancestry_values = []
     for comp in ancestry_components:
         if pd.notna(row[comp]) and row[comp] > 0:
             ancestry_values.append((comp, row[comp]))
-
-    # Sort by percentage (highest first)
     ancestry_values.sort(key=lambda x: x[1], reverse=True)
-
     tooltip_parts = [f"{comp}: {pct:.1f}%" for comp, pct in ancestry_values]
-    # No need to check for group_full, group already contains full name if available
     return "<br>".join(tooltip_parts)
 
 
-pca_df['admixture_tooltip'] = pca_df.apply(format_admixture_tooltip, axis=1)
+base_df['admixture_tooltip'] = base_df.apply(format_admixture_tooltip, axis=1)
 
-# If uploaded data exists, project it onto the same PCA space
-if uploaded_file is not None:
+# If uploaded data exists, project it onto PCA
+if uploaded_file is not None and dimred_method == "PCA":
     df_up_only = df[df['__source__'] == 'uploaded'].copy()
-
-    # Encode uploaded sample using same reference alleles
     df_up_encoded = df_up_only.copy()
-    for col in valid_cols:  # Only process valid columns
+    for col in valid_cols:
         if col in df_up_only.columns:
             df_up_encoded[col] = df_up_only[col].apply(
                 lambda g: encode_genotype_dosage(g, ref_alleles.get(col)))
         else:
             df_up_encoded[col] = None
-
-    # Impute and scale uploaded sample using fitted imputer and scaler
-    df_up_pca = df_up_encoded[valid_cols].copy()  # Only use valid columns
+    df_up_pca = df_up_encoded[valid_cols].copy()
     try:
         df_up_imputed = pd.DataFrame(
             imputer.transform(df_up_pca), columns=valid_cols)
-        df_up_scaled = pd.DataFrame(
-            scaler.transform(df_up_imputed), columns=valid_cols)
+        df_up_scaled = pd.DataFrame(scaler.transform(
+            df_up_imputed), columns=valid_cols)
     except Exception as e:
         st.error(f"Error processing uploaded sample: {str(e)}")
         st.stop()
-
-    # Project uploaded sample onto existing PCA space
+    # Project uploaded sample onto PCA
     up_pca_result = pca.transform(df_up_scaled)
-
-    # Add uploaded sample to PCA dataframe
-    up_pca_df = pd.DataFrame(up_pca_result, columns=[
-                             f'PC{i+1}' for i in range(n_components)])
-    up_pca_df['group'] = df_up_only['group'].values
-    up_pca_df['individual'] = df_up_only['individual'].values
-    up_pca_df['source'] = df_up_only['__source__'].values
-
-    # Add simplified data for uploaded samples
-    up_pca_df['dominant_ancestry'] = 'YOU'
-    up_pca_df['admixture_tooltip'] = 'No admixture data'
-
-    pca_df = pd.concat([pca_df, up_pca_df], ignore_index=True)
-
-if len(pca_df) < 2:
-    st.error('Not enough data for PCA visualization.')
+    up_df = pd.DataFrame({
+        'group': df_up_only['group'].values,
+        'individual': df_up_only['individual'].values,
+        'source': df_up_only['__source__'].values,
+        'PC1': up_pca_result[:, 0],
+        'PC2': up_pca_result[:, 1],
+        'dominant_ancestry': 'YOU',
+        'admixture_tooltip': 'No admixture data'
+    })
+    plot_df = pd.concat([base_df, up_df], ignore_index=True)
 else:
-    # Use all data (no filtering)
-    filtered_df = pca_df.copy()
+    plot_df = base_df.copy()
 
-    # Choose coloring and shape scheme
+if len(plot_df) < 2:
+    st.error('Not enough data for visualization.')
+else:
+    filtered_df = plot_df.copy()
     color_by = 'dominant_ancestry' if show_dominant_ancestry else 'group'
     symbol_by = 'dominant_ancestry' if show_dominant_ancestry else 'group'
 
-    # Create scatter plot with diverse shapes and colors
-    fig = px.scatter(
-        filtered_df, x='PC1', y='PC2',
-        color=color_by,
-        symbol=symbol_by,  # Use shapes based on dominant ancestry when that mode is enabled
-        hover_name='individual',
-        hover_data={
+    # Choose axes and title based on method
+    if dimred_method == "PCA":
+        x_col, y_col = 'PC1', 'PC2'
+        plot_title = f'PCA: PC1 vs PC2 (Colored by {"Dominant Ancestry" if show_dominant_ancestry else "Population Group"})'
+        hover_data = {
             'group': True,
             'admixture_tooltip': True,
             'PC1': ':.2f',
             'PC2': ':.2f'
-        },
-        title=f'PCA: PC1 vs PC2 (Colored by {"{}".format("Dominant Ancestry" if show_dominant_ancestry else "Population Group")})',
-        labels={
-            'PC1': 'Principal Component 1',
-            'PC2': 'Principal Component 2',
-            'group': 'Population Group',
-            'individual': 'Individual ID',
-            'dominant_ancestry': 'Dominant Ancestry',
-            'admixture_tooltip': 'All Ancestry Components'
-        },
-        color_discrete_sequence=['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF00FF',
-                                 '#00FFFF', '#800000', '#000080', '#008000', '#808000',
-                                 '#800080', '#008080', '#FFA500', '#A52A2A', '#DDA0DD',
-                                 '#98FB98', '#F0E68C', '#DEB887', '#5F9EA0', '#7FFF00',
-                                 '#D2691E', '#FF7F50', '#6495ED', '#DC143C', '#B8860B']
-    )
+        }
+        fig = px.scatter(
+            filtered_df, x=x_col, y=y_col,
+            color=color_by,
+            symbol=symbol_by,
+            hover_name='individual',
+            hover_data=hover_data,
+            title=plot_title,
+            labels={
+                'PC1': 'Principal Component 1',
+                'PC2': 'Principal Component 2',
+                'group': 'Population Group',
+                'individual': 'Individual ID',
+                'dominant_ancestry': 'Dominant Ancestry',
+                'admixture_tooltip': 'All Ancestry Components'
+            },
+            color_discrete_sequence=['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF00FF',
+                                     '#00FFFF', '#800000', '#000080', '#008000', '#808000',
+                                     '#800080', '#008080', '#FFA500', '#A52A2A', '#DDA0DD',
+                                     '#98FB98', '#F0E68C', '#DEB887', '#5F9EA0', '#7FFF00',
+                                     '#D2691E', '#FF7F50', '#6495ED', '#DC143C', '#B8860B']
+        )
 
-    # Create diverse marker symbols
-    marker_symbols = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up',
-                      'triangle-down', 'pentagon', 'hexagon', 'star', 'triangle-left',
-                      'triangle-right', 'star-triangle-up', 'star-square', 'asterisk']
+        marker_symbols = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up',
+                          'triangle-down', 'pentagon', 'hexagon', 'star', 'triangle-left',
+                          'triangle-right', 'star-triangle-up', 'star-square', 'asterisk']
+        for i, trace in enumerate(fig.data):
+            trace_name = str(trace.name)
+            trace.marker.symbol = marker_symbols[i % len(marker_symbols)]
+            if 'you' in trace_name.lower():
+                trace.marker.size = 15
+                trace.marker.symbol = 'star'
+                trace.marker.color = 'gold'
+            else:
+                trace.marker.size = 8
+        fig.update_layout(
+            legend=dict(
+                title=color_by.replace('_', ' ').title(),
+                tracegroupgap=0,
+            ),
+            showlegend=True,
+            height=600
+        )
+        st.info(f"Showing {len(filtered_df)} samples")
+        fig.update_layout(yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fig, use_container_width=True, key="pca_plot")
+    elif dimred_method == "Population Distance":
+        import plotly.express as px
+        from scipy.spatial.distance import cdist, mahalanobis
+        st.markdown("### Population Distance Explorer")
 
-    # Update marker symbols and sizes for each trace
-    for i, trace in enumerate(fig.data):
-        trace_name = str(trace.name)
-
-        # Set unique symbol for each group/ancestry
-        trace.marker.symbol = marker_symbols[i % len(marker_symbols)]
-
-        # Make uploaded samples (YOU) a yellow big star
-        if 'you' in trace_name.lower():
-            trace.marker.size = 15
-            trace.marker.symbol = 'star'
-            trace.marker.color = 'gold'
+        # Ensure uploaded data is included for Population Distance
+        if uploaded_file is not None:
+            # Include uploaded data similar to PCA section
+            df_up_only = df[df['__source__'] == 'uploaded'].copy()
+            up_df = pd.DataFrame({
+                'group': df_up_only['group'].values,
+                'individual': df_up_only['individual'].values,
+                'source': df_up_only['__source__'].values,
+                'PC1': np.nan,  # Not used for population distance
+                'PC2': np.nan,  # Not used for population distance
+                'dominant_ancestry': 'YOU',
+                'admixture_tooltip': 'No admixture data'
+            })
+            # Combine base_df with uploaded data
+            pop_df_full = pd.concat([base_df, up_df], ignore_index=True)
         else:
-            trace.marker.size = 8
+            pop_df_full = base_df.copy()
 
-    # Clean up legend
-    fig.update_layout(
-        legend=dict(
-            title=color_by.replace('_', ' ').title(),
-            tracegroupgap=0,
-        ),
-        showlegend=True,
-        height=600
-    )
+        pop_df = pop_df_full.copy()
+        pop_df_reset = pop_df.reset_index(drop=True)
 
-    # Display sample count info
-    st.info(f"Showing {len(filtered_df)} samples")
+        # Count sample size for each group
+        group_sizes = pop_df_reset.groupby('group').size().to_dict()
+        pop_groups = pop_df_reset['group'].dropna().unique()
 
-    # Display the plot
-    st.plotly_chart(fig, use_container_width=True)
+        # Create labels: show (n=) only for non-uploaded groups
+        group_labels = []
+        for g in pop_groups:
+            if g == 'YOU':
+                group_labels.append(g)
+            else:
+                group_labels.append(f"{g} (n={group_sizes.get(g, 0)})")
+        group_map = dict(zip(group_labels, pop_groups))
+
+        # Auto-select "YOU" if it exists, otherwise first group
+        you_label = next(
+            (label for label, g in group_map.items() if g == 'YOU'), None)
+        if uploaded_file is not None and you_label:
+            default_idx = group_labels.index(you_label)
+        else:
+            default_idx = 0
+
+        selected_label = st.selectbox(
+            "Select a population group:",
+            group_labels,
+            index=default_idx)
+        selected_group = group_map[selected_label]
+
+        # Distance metric selection
+        metric_options = {
+            "Euclidean": "euclidean",
+            "Manhattan (Cityblock)": "cityblock",
+        }
+        dist_metric_label = st.selectbox(
+            "Distance metric:",
+            list(metric_options.keys()),
+            index=0,
+            key="popdist_metric_select"
+        )
+        dist_metric = metric_options[dist_metric_label]
+
+        # Prepare scaled data for all populations
+        # Encode genotypes for all data (reference + uploaded)
+        pop_encoded = pop_df_reset.copy()
+
+        # Add genotype columns from the original data
+        # For reference data, get from df_ref_only
+        # For uploaded data, get from uploaded data
+        ref_mask = pop_df_reset['source'] == 'existing'
+        if ref_mask.any():
+            # Map reference individuals to their genotype data
+            ref_individuals = pop_df_reset[ref_mask]['individual'].values
+            ref_data_subset = df_ref_only[df_ref_only['individual'].isin(
+                ref_individuals)]
+            # Add genotype columns
+            for col in valid_cols:
+                if col in ref_data_subset.columns:
+                    # Create mapping from individual to genotype
+                    ind_to_geno = dict(
+                        zip(ref_data_subset['individual'], ref_data_subset[col]))
+                    pop_encoded.loc[ref_mask, col] = pop_df_reset.loc[ref_mask, 'individual'].map(
+                        ind_to_geno)
+
+        if uploaded_file is not None:
+            up_mask = pop_df_reset['source'] == 'uploaded'
+            if up_mask.any():
+                df_up_only = df[df['__source__'] == 'uploaded'].copy()
+                up_individuals = pop_df_reset[up_mask]['individual'].values
+                up_data_subset = df_up_only[df_up_only['individual'].isin(
+                    up_individuals)]
+                # Add genotype columns
+                for col in valid_cols:
+                    if col in up_data_subset.columns:
+                        ind_to_geno = dict(
+                            zip(up_data_subset['individual'], up_data_subset[col]))
+                        pop_encoded.loc[up_mask, col] = pop_df_reset.loc[up_mask, 'individual'].map(
+                            ind_to_geno)
+
+        # Encode all genotypes
+        for col in valid_cols:
+            if col in pop_encoded.columns:
+                pop_encoded[col] = pop_encoded[col].apply(
+                    lambda g: encode_genotype_dosage(g, ref_alleles.get(col)))
+            else:
+                pop_encoded[col] = None
+
+        # Impute and scale using the same scaler as reference
+        try:
+            pop_imputed = pd.DataFrame(
+                imputer.transform(pop_encoded[valid_cols]), columns=valid_cols)
+            pop_scaled = pd.DataFrame(scaler.transform(
+                pop_imputed), columns=valid_cols)
+        except Exception as e:
+            st.error(f"Error processing population data: {str(e)}")
+            st.stop()
+
+        all_scaled = np.asarray(pop_scaled)
+
+        # Map DataFrame indices to numpy array row indices
+        idx_map = {idx: i for i, idx in enumerate(pop_df_reset.index)}
+        group_indices = {g: [
+            idx_map[idx] for idx in pop_df_reset.index[pop_df_reset['group'] == g].tolist()] for g in pop_groups}
+        # Compute mean vector for each group
+        group_means = {g: all_scaled[group_indices[g], :].mean(
+            axis=0) for g in pop_groups}
+        selected_vec = group_means[selected_group].reshape(1, -1)
+        all_vecs = np.stack([group_means[g] for g in pop_groups])
+        if dist_metric != "mahalanobis":
+            from scipy.spatial.distance import cdist
+            dists = cdist(selected_vec, all_vecs,
+                          metric=dist_metric).flatten()
+        else:
+            from scipy.spatial.distance import mahalanobis
+            cov = np.cov(all_scaled, rowvar=False)
+            try:
+                inv_cov = np.linalg.inv(cov)
+            except np.linalg.LinAlgError:
+                cov += np.eye(cov.shape[0]) * 1e-8
+                inv_cov = np.linalg.inv(cov)
+            dists = np.array([
+                mahalanobis(selected_vec.flatten(), all_vecs[i], inv_cov)
+                for i in range(all_vecs.shape[0])
+            ])
+        st.markdown(f"""
+        **What is Population Distance?**  
+        For each population group, we calculate the average (mean) genotype vector after scaling (standardizing) each SNP.  
+        We use the same set of trait-associated SNPs that are used for the PCA.  
+        You can choose from several distance metrics (Euclidean, Manhattan) to compare the selected group's mean genotype to every other group's mean genotype.  
+        This table shows which populations are most genetically similar (smallest distance) or different (largest distance) to the selected group, using these trait SNPs.
+        """)
+        # Add sample size for each group
+        group_sizes = {g: len(group_indices[g]) for g in pop_groups}
+        dist_df = pd.DataFrame({
+            'Population': pop_groups,
+            'Distance': dists,
+            'Sample Size': [group_sizes[g] for g in pop_groups]
+        })
+        # Exclude the selected population itself
+        dist_df = dist_df[dist_df['Population'] != selected_group]
+        dist_df = dist_df.sort_values('Distance')
+        st.dataframe(dist_df, use_container_width=True)
 
     # Load trait data
     trait_df = pd.read_csv('merged_traits.csv')
