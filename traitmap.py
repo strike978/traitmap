@@ -526,7 +526,7 @@ else:
         )
         # 'Reference Samples' metric already shows total samples; avoid redundant message
         fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig, width='stretch', key="pca_plot")
+        st.plotly_chart(fig, config={"responsive": True}, key="pca_plot")
 
     elif dimred_method == "Population Distance":
         import plotly.express as px
