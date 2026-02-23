@@ -10,18 +10,73 @@ from sklearn.preprocessing import StandardScaler
 import os
 st.set_page_config(
     page_title="TraitMap: Trait-Based Ancestry Explorer", layout="wide")
-st.title("TraitMap: Trait-Based Ancestry Explorer")
-st.markdown("""
-**Reference samples:** This PCA includes individuals from the 1000 Genomes, SGDP, and HGDP datasets.
-You can find the reference genotype data [here](https://docs.google.com/spreadsheets/d/1086enwO19h-ruj61SxqLnvn-IXtMRbG50VOCuR-5xg0/edit?gid=1970300111#gid=1970300111).
 
-**Important note:** This site analyzes just 128 SNPs, each linked to specific genetic traits. It does not use genome-wide data and cannot provide a complete picture of your ancestry. The results show patterns based on trait-associated markers only, not a full ancestry breakdown.
 
-**Experimental Disclaimer:**
-This analysis is highly experimental and not scientifically validated. The results are for entertainment and educational purposes only and should not be taken seriously or used for any medical, ancestry, or personal decision-making. Please interpret all outputs with caution.
+# --- Distinctive Title Section (Left-Aligned, Accent Bar) ---
+st.markdown(
+    """
+        <style>
+            :root{
+                --tm-primary: #0f172a;       /* strong title on light */
+                --tm-muted: #475569;         /* muted caption */
+                --tm-accent: #06b6d4;        /* accent (teal/cyan) */
+                --tm-sub: #0f766e;           /* subtitle */
+                --tm-card-bg: #f6fff9;       /* flat card background (light) */
+                --tm-card-border: #d0e8dd;   /* subtle border */
+                --tm-badge-bg: #e6f9ef;      /* flat badge background */
+                --tm-badge-text: #1e7f5c;
+                --tm-warning: #eab308;
+                --tm-info: #0ea5e9;
+                --tm-success: #16a34a;
+            }
+            @media (prefers-color-scheme: dark){
+                :root{
+                    --tm-primary: #e6fffb;
+                    --tm-muted: #cbd5e1;
+                    --tm-accent: #7dd3fc;
+                    --tm-sub: #7ee7c6;
+                    --tm-card-bg: #072726;       /* flat card background (dark) */
+                    --tm-card-border: #083b37;
+                    --tm-badge-bg: rgba(255,255,255,0.03);
+                    --tm-badge-text: #bbf7d0;
+                    --tm-warning: #f59e0b;
+                    --tm-info: #38bdf8;
+                    --tm-success: #4ade80;
+                }
+            }
+        </style>
+        <div style='display:flex; flex-direction:column; align-items:flex-start; margin-bottom:1.3em;'>
+            <div>
+                <div style='font-size:2.45rem; font-weight:900; color:var(--tm-primary); letter-spacing:-1px; margin-bottom:0.13em;'>TraitMap</div>
+                <div style='font-size:1.13rem; color:var(--tm-sub); font-weight:600; margin-bottom:0.18em;'>Explore ancestry patterns using trait-associated SNPs.</div>
+                <div style='font-size:1.01rem; color:var(--tm-muted); font-weight:400;'>Upload your genotype data or browse reference populations.</div>
+            </div>
+        </div>
+        """,
+    unsafe_allow_html=True
+)
 
-**Privacy notice:** Uploaded genotype data is processed only in your browser session and is not stored on any server. Your data is discarded immediately after analysis and never shared or saved.
-""")
+
+# --- Info Section: Warm Pastel Card, Pill Button, Modern Icons ---
+st.markdown(
+    """
+        <div style='margin-bottom:1.5em; display:flex; justify-content:center;'>
+                <div style='background:var(--tm-card-bg); border:1.5px solid var(--tm-card-border); border-radius:1.3em; box-shadow:0 2px 12px rgba(0,0,0,0.06); padding:2.1em 2.5em 2.1em 2.5em; min-width:340px; max-width:720px;'>
+                    <div style='display:flex; align-items:center; margin-bottom:1.1em;'>
+                        <span style='font-size:1.7em; margin-right:0.7em;'>🌐</span>
+                        <span style='font-size:1.22em; font-weight:800; color:var(--tm-primary);'>Reference samples: <span style='color:var(--tm-primary); font-weight:600;'>1000 Genomes, SGDP, HGDP</span></span>
+                        <a href='https://docs.google.com/spreadsheets/d/1086enwO19h-ruj61SxqLnvn-IXtMRbG50VOCuR-5xg0/edit?gid=1970300111#gid=1970300111' target='_blank' style='margin-left:1.1em; text-decoration:none;'>
+                            <span style='background:var(--tm-badge-bg); color:var(--tm-badge-text); font-weight:700; border-radius:1.2em; padding:0.18em 1.1em; font-size:0.98em; border:1px solid rgba(0,0,0,0.04); box-shadow:0 1px 4px rgba(0,0,0,0.04);'>View Data ↗</span>
+                        </a>
+                    </div>
+                    <div style='margin:0.7em 0 0.3em 0; font-size:1.09em; color:var(--tm-warning); font-weight:700;'>⚠️ <span style='color:var(--tm-primary); font-weight:400;'>Only 128 trait SNPs are analyzed. Not a full ancestry test.</span></div>
+                    <div style='margin:0.3em 0 0.3em 0; font-size:1.09em; color:var(--tm-info); font-weight:700;'>🔬 <span style='color:var(--tm-primary); font-weight:400;'>Results are experimental and for education/entertainment only.</span></div>
+                    <div style='margin:0.3em 0 0.1em 0; font-size:1.09em; color:var(--tm-success); font-weight:700;'>🔒 <span style='color:var(--tm-primary); font-weight:400;'>Data is processed in your browser and never stored.</span></div>
+                </div>
+            </div>
+        """,
+    unsafe_allow_html=True
+)
 
 
 # Load the genotype and admixture data
@@ -58,10 +113,12 @@ def load_reference():
 
 
 # Admixture calculator selection
+st.sidebar.title("Analysis Settings")
 admixture_file = st.sidebar.selectbox(
     "Admixture calculator:",
     ["Globe13 (default)", "puntDNAL"],
-    index=0
+    index=0,
+    key="admixture_select"
 )
 if admixture_file == "puntDNAL":
     admixture_path = 'merged_puntDNAL.csv'
@@ -114,7 +171,6 @@ else:
     selected_category = 'All'
     snps_in_category = None
 
-st.sidebar.header("Display Options")
 
 # Add radio to select dimensionality reduction method
 dimred_method = st.sidebar.radio(
@@ -124,9 +180,10 @@ dimred_method = st.sidebar.radio(
     key="viz_method_radio"
 )
 
-# Add checkboxes to show/hide by dominant ancestry
 show_dominant_ancestry = st.sidebar.checkbox(
     "Color by dominant ancestry", value=False)
+st.sidebar.caption(
+    "Tip: Use the controls above to explore and filter the data.")
 
 # If user uploads, align their data to reference SNPs
 if uploaded_file is not None:
@@ -277,6 +334,13 @@ scaler = StandardScaler()
 df_ref_scaled = pd.DataFrame(
     scaler.fit_transform(df_ref_imputed), columns=valid_cols)
 
+# Show quick metrics about the dataset
+ref_sample_count = df_ref_only.shape[0]
+valid_snp_count = len(valid_cols)
+col1, col2 = st.columns(2)
+col1.metric("Reference Samples", f"{ref_sample_count}")
+col2.metric("SNPs Used", f"{valid_snp_count}")
+
 
 # --- Dimensionality reduction: PCA or Dendrogram (only one runs) ---
 n_components = 2
@@ -411,6 +475,22 @@ else:
                                      '#98FB98', '#F0E68C', '#DEB887', '#5F9EA0', '#7FFF00',
                                      '#D2691E', '#FF7F50', '#6495ED', '#DC143C', '#B8860B']
         )
+        # Make uploaded sample stand out
+        for trace in fig.data:
+            if 'you' in str(trace.name).lower():
+                trace.marker.size = 18
+                trace.marker.symbol = 'star'
+                trace.marker.color = 'gold'
+            else:
+                trace.marker.size = 8
+        fig.update_layout(
+            legend=dict(
+                title=color_by.replace('_', ' ').title(),
+                tracegroupgap=0,
+            ),
+            showlegend=True,
+            height=600
+        )
 
         marker_symbols = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up',
                           'triangle-down', 'pentagon', 'hexagon', 'star', 'triangle-left',
@@ -432,13 +512,13 @@ else:
             showlegend=True,
             height=600
         )
-        st.info(f"Showing {len(filtered_df)} samples")
+        # 'Reference Samples' metric already shows total samples; avoid redundant message
         fig.update_layout(yaxis=dict(autorange="reversed"))
         st.plotly_chart(fig, use_container_width=True, key="pca_plot")
     elif dimred_method == "Population Distance":
         import plotly.express as px
         from scipy.spatial.distance import cdist, mahalanobis
-        st.markdown("### Population Distance Explorer")
+        st.header("Population Distance Explorer")
 
         # Ensure uploaded data is included for Population Distance
         if uploaded_file is not None:
@@ -583,13 +663,23 @@ else:
                 mahalanobis(selected_vec.flatten(), all_vecs[i], inv_cov)
                 for i in range(all_vecs.shape[0])
             ])
-        st.markdown(f"""
-        **What is Population Distance?**  
-        For each population group, we calculate the average (mean) genotype vector after scaling (standardizing) each SNP.  
-        We use the same set of trait-associated SNPs that are used for the PCA.  
-        You can choose from several distance metrics (Euclidean, Manhattan) to compare the selected group's mean genotype to every other group's mean genotype.  
-        This table shows which populations are most genetically similar (smallest distance) or different (largest distance) to the selected group, using these trait SNPs.
-        """)
+
+        st.markdown(
+            """
+            <div style='margin:0.8em 0;'>
+              <div style='background:var(--tm-card-bg); border:1px solid var(--tm-card-border); border-radius:0.9em; padding:0.9em 1.1em; max-width:100%'>
+                <div style='font-weight:700; color:var(--tm-primary); margin-bottom:0.35em;'>What is Population Distance?</div>
+                <div style='color:var(--tm-muted); font-size:0.98em; line-height:1.35;'>
+                  <div>• Mean genotype per group (SNPs standardized).</div>
+                  <div>• Compare group means using the chosen metric (Euclidean or Manhattan).</div>
+                  <div>• Populations are ranked by genetic similarity (smaller distance = more similar).</div>
+                  <div style='margin-top:0.45em; color:var(--tm-sub); font-size:0.95em;'>Uses the same trait-associated SNPs as the PCA.</div>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         # Add sample size for each group
         group_sizes = {g: len(group_indices[g]) for g in pop_groups}
         dist_df = pd.DataFrame({
@@ -602,59 +692,4 @@ else:
         dist_df = dist_df.sort_values('Distance')
         st.dataframe(dist_df, use_container_width=True)
 
-    # Load trait data
-    trait_df = pd.read_csv('merged_traits.csv')
-
-    # Add selectbox to choose sample for trait data
-    st.markdown("---")
-    st.markdown("### 🧬 Trait Data Explorer")
-    st.markdown("Select a sample to view its predicted genetic traits:")
-
-    # Get available individuals for selection
-    available_individuals = sorted(filtered_df['individual'].unique())
-
-    selected_individual = st.selectbox(
-        "Choose a sample:",
-        options=[''] + available_individuals,
-        index=0,
-        key="trait_selector"
-    )
-
-    # Show trait data for selected individual
-    if selected_individual:
-        trait_row = trait_df[trait_df['individual'] == selected_individual]
-        st.markdown(f"#### Trait predictions for: **{selected_individual}**")
-        if not trait_row.empty:
-            # Show all trait columns except meta
-            meta_cols = ['source', 'group', 'group_full', 'individual']
-            trait_data = trait_row.drop(columns=meta_cols, errors='ignore').T
-            trait_data.columns = ['Probability (%)']
-
-            # Format trait names for better display
-            trait_data.index = trait_data.index.str.replace(
-                '_', ' ').str.title()
-
-            # Display as three columns for better layout
-            col1, col2, col3 = st.columns(3)
-
-            # Split traits into categories
-            eye_traits = trait_data[trait_data.index.str.contains('Eye')]
-            hair_traits = trait_data[trait_data.index.str.contains('Hair')]
-            skin_traits = trait_data[trait_data.index.str.contains('Skin')]
-
-            with col1:
-                if not eye_traits.empty:
-                    st.markdown("**👁️ Eye Color**")
-                    st.dataframe(eye_traits, use_container_width=True)
-
-            with col2:
-                if not hair_traits.empty:
-                    st.markdown("**💇 Hair Color**")
-                    st.dataframe(hair_traits, use_container_width=True)
-
-            with col3:
-                if not skin_traits.empty:
-                    st.markdown("**🎨 Skin Color**")
-                    st.dataframe(skin_traits, use_container_width=True)
-        else:
-            st.info("No trait data available for this sample.")
+    # Trait Data Explorer removed per user request
