@@ -16,7 +16,11 @@ st.markdown("""
 You can find the reference genotype data [here](https://docs.google.com/spreadsheets/d/1086enwO19h-ruj61SxqLnvn-IXtMRbG50VOCuR-5xg0/edit?gid=1970300111#gid=1970300111).
 
 **Important note:** This site analyzes just 128 SNPs, each linked to specific genetic traits. It does not use genome-wide data and cannot provide a complete picture of your ancestry. The results show patterns based on trait-associated markers only, not a full ancestry breakdown.
-\n**Privacy notice:** Uploaded genotype data is processed only in your browser session and is not stored on any server. Your data is discarded immediately after analysis and never shared or saved.
+
+**Experimental Disclaimer:**
+This analysis is highly experimental and not scientifically validated. The results are for entertainment and educational purposes only and should not be taken seriously or used for any medical, ancestry, or personal decision-making. Please interpret all outputs with caution.
+
+**Privacy notice:** Uploaded genotype data is processed only in your browser session and is not stored on any server. Your data is discarded immediately after analysis and never shared or saved.
 """)
 
 
