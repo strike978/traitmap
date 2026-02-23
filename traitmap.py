@@ -341,7 +341,7 @@ df_ref_pca = df_ref_encoded[geno_cols].copy()
 valid_cols = [col for col in geno_cols if not df_ref_pca[col].isna().all()]
 df_ref_pca = df_ref_pca[valid_cols]
 
-imputer = SimpleImputer(strategy='most_frequent')
+imputer = SimpleImputer(strategy='mean')
 df_ref_imputed = pd.DataFrame(
     imputer.fit_transform(df_ref_pca), columns=valid_cols)
 
