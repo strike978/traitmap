@@ -1,4 +1,3 @@
-# --- TraitMap Title and Dataset Info ---
 import plotly.express as px
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
@@ -147,8 +146,6 @@ else:
         'Mediterranean', 'North European', 'Palaeo African', 'Siberian',
         'South Asian', 'Southwest Asian', 'West African', 'West Asian'
     ]
-
-# Add interactive filtering controls in sidebar
 
 
 # --- SNP Category Selection ---
@@ -691,5 +688,3 @@ else:
         dist_df = dist_df[dist_df['Population'] != selected_group]
         dist_df = dist_df.sort_values('Distance')
         st.dataframe(dist_df, use_container_width=True)
-
-    # Trait Data Explorer removed per user request
