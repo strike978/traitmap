@@ -1,13 +1,13 @@
 # --- TraitMap Title and Dataset Info ---
 import plotly.express as px
 from sklearn.decomposition import PCA
-
 from sklearn.manifold import MDS
 import pandas as pd
 import streamlit as st
 from sklearn.impute import SimpleImputer
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+import os
 st.set_page_config(
     page_title="TraitMap: Trait-Based Ancestry Explorer", layout="wide")
 st.title("TraitMap: Trait-Based Ancestry Explorer")
@@ -88,6 +88,27 @@ else:
     ]
 
 # Add interactive filtering controls in sidebar
+
+
+# --- SNP Category Selection ---
+snps_cat_path = 'snps_cat.csv'
+if os.path.exists(snps_cat_path):
+    snps_cat_df = pd.read_csv(snps_cat_path)
+    available_categories = sorted(snps_cat_df['Category'].unique())
+    selected_category = st.sidebar.selectbox(
+        'SNP Category:',
+        options=['All'] + available_categories,
+        index=0,
+        key='snp_category_select'
+    )
+    if selected_category != 'All':
+        snps_in_category = snps_cat_df[snps_cat_df['Category']
+                                       == selected_category]['rsID'].tolist()
+    else:
+        snps_in_category = None
+else:
+    selected_category = 'All'
+    snps_in_category = None
 
 st.sidebar.header("Display Options")
 
@@ -183,13 +204,24 @@ if uploaded_file is not None:
 else:
     df = df_ref.copy()
 
+
 meta_cols = ['source', 'group', 'group_full', 'individual', '__source__']
-geno_cols = [col for col in df.columns if col not in meta_cols]
+all_geno_cols = [col for col in df.columns if col not in meta_cols]
+# Filter geno_cols by selected SNP category if set
+if snps_in_category:
+    geno_cols = [col for col in all_geno_cols if col in snps_in_category]
+else:
+    geno_cols = all_geno_cols
+
 
 # Always train PCA on reference data only
 df_ref_only = df[df['__source__'] == 'existing'].copy()
-geno_cols = [col for col in df_ref_only.columns if col not in [
-    'source', 'group', 'group_full', 'individual', '__source__']]
+# Re-filter geno_cols to ensure only selected SNPs are used for PCA
+if snps_in_category:
+    geno_cols = [col for col in df_ref_only.columns if col in snps_in_category]
+else:
+    geno_cols = [col for col in df_ref_only.columns if col not in [
+        'source', 'group', 'group_full', 'individual', '__source__']]
 
 
 # Vectorized genotype dosage encoding
