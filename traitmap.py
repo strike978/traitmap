@@ -169,28 +169,31 @@ else:
     snps_in_category = None
 
 
-# --- Visualization Method Selection and Options ---
-with st.sidebar.expander("Visualization: PCA", expanded=True):
-    dimred_method = st.radio(
-        "Visualization method:",
-        ["PCA", "Population Distance"],
-        index=0,
-        key="viz_method_radio"
-    )
-    show_dominant_ancestry = False
+# --- Analysis Method Selection and Per-Method Options ---
+dimred_method = st.sidebar.radio(
+    "Analysis method:",
+    ["PCA", "Population Distance"],
+    index=0,
+    key="viz_method_radio"
+)
+
+# PCA options grouped under its own expander
+with st.sidebar.expander("PCA Options", expanded=(dimred_method == "PCA")):
     if dimred_method == "PCA":
         show_dominant_ancestry = st.checkbox(
             "Color by dominant ancestry", value=False, key="color_by_ancestry")
+    else:
+        show_dominant_ancestry = False
 
-# --- Population Distance Options ---
-if dimred_method == "Population Distance":
-    with st.sidebar.expander("Population Distance Options", expanded=True):
+# Population Distance options grouped under its own expander
+with st.sidebar.expander("Population Distance Options", expanded=(dimred_method == "Population Distance")):
+    if dimred_method == "Population Distance":
         compare_individuals = st.checkbox(
             "Compare Individuals (not Groups)", value=False,
             help="Toggle to compare individual samples instead of population groups.",
             key="compare_individuals_checkbox")
-else:
-    compare_individuals = False
+    else:
+        compare_individuals = False
 
 st.sidebar.caption(
     "Tip: Use the controls above to explore and filter the data.")
