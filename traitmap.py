@@ -106,7 +106,7 @@ st.caption(
 
 
 def load_reference():
-    df = pd.read_csv('merged_genotypes.csv')
+    df = pd.read_csv('merged_genotypes.csv', low_memory=False)
     df['__source__'] = 'existing'
     return df
 
@@ -126,7 +126,7 @@ else:
 
 
 def load_admixture():
-    return pd.read_csv(admixture_path)
+    return pd.read_csv(admixture_path, low_memory=False)
 
 
 df_ref = load_reference()
@@ -151,7 +151,7 @@ else:
 # --- SNP Category Selection ---
 snps_cat_path = 'snps_cat.csv'
 if os.path.exists(snps_cat_path):
-    snps_cat_df = pd.read_csv(snps_cat_path)
+    snps_cat_df = pd.read_csv(snps_cat_path, low_memory=False)
     available_categories = sorted(snps_cat_df['Category'].unique())
     selected_category = st.sidebar.selectbox(
         'SNP Category:',
@@ -169,16 +169,29 @@ else:
     snps_in_category = None
 
 
-# Add radio to select dimensionality reduction method
-dimred_method = st.sidebar.radio(
-    "Visualization method:",
-    ["PCA", "Population Distance"],
-    index=0,
-    key="viz_method_radio"
-)
+# --- Visualization Method Selection and Options ---
+with st.sidebar.expander("Visualization: PCA", expanded=True):
+    dimred_method = st.radio(
+        "Visualization method:",
+        ["PCA", "Population Distance"],
+        index=0,
+        key="viz_method_radio"
+    )
+    show_dominant_ancestry = False
+    if dimred_method == "PCA":
+        show_dominant_ancestry = st.checkbox(
+            "Color by dominant ancestry", value=False, key="color_by_ancestry")
 
-show_dominant_ancestry = st.sidebar.checkbox(
-    "Color by dominant ancestry", value=False)
+# --- Population Distance Options ---
+if dimred_method == "Population Distance":
+    with st.sidebar.expander("Population Distance Options", expanded=True):
+        compare_individuals = st.checkbox(
+            "Compare Individuals (not Groups)", value=False,
+            help="Toggle to compare individual samples instead of population groups.",
+            key="compare_individuals_checkbox")
+else:
+    compare_individuals = False
+
 st.sidebar.caption(
     "Tip: Use the controls above to explore and filter the data.")
 
@@ -186,7 +199,8 @@ st.sidebar.caption(
 if uploaded_file is not None:
     try:
         # Try reading as 23andMe/Ancestry raw data format first without header
-        df_raw = pd.read_csv(uploaded_file, sep='\t', comment='#', header=None)
+        df_raw = pd.read_csv(uploaded_file, sep='\t',
+                             comment='#', header=None, low_memory=False)
 
         # Check if it has 4 columns (typical 23andMe format: rsid, chr, pos, genotype)
         if df_raw.shape[1] == 4:
@@ -201,7 +215,8 @@ if uploaded_file is not None:
             st.success("✅ Detected AncestryDNA format")
         else:
             # Try with header
-            df_raw = pd.read_csv(uploaded_file, sep='\t', comment='#')
+            df_raw = pd.read_csv(uploaded_file, sep='\t',
+                                 comment='#', low_memory=False)
 
             # Check if AncestryDNA format with allele1/allele2 columns
             if 'allele1' in df_raw.columns and 'allele2' in df_raw.columns:
@@ -511,7 +526,8 @@ else:
         )
         # 'Reference Samples' metric already shows total samples; avoid redundant message
         fig.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig, use_container_width=True, key="pca_plot")
+        st.plotly_chart(fig, width='stretch', key="pca_plot")
+
     elif dimred_method == "Population Distance":
         import plotly.express as px
         from scipy.spatial.distance import cdist, mahalanobis
@@ -538,32 +554,49 @@ else:
         pop_df = pop_df_full.copy()
         pop_df_reset = pop_df.reset_index(drop=True)
 
-        # Count sample size for each group
-        group_sizes = pop_df_reset.groupby('group').size().to_dict()
-        pop_groups = pop_df_reset['group'].dropna().unique()
-
-        # Create labels: show (n=) only for non-uploaded groups
-        group_labels = []
-        for g in pop_groups:
-            if g == 'YOU':
-                group_labels.append(g)
-            else:
-                group_labels.append(f"{g} (n={group_sizes.get(g, 0)})")
-        group_map = dict(zip(group_labels, pop_groups))
-
-        # Auto-select "YOU" if it exists, otherwise first group
-        you_label = next(
-            (label for label, g in group_map.items() if g == 'YOU'), None)
-        if uploaded_file is not None and you_label:
-            default_idx = group_labels.index(you_label)
+        # --- Comparison Mode Selection ---
+        if compare_individuals:
+            # Individual mode: let user select individuals
+            all_inds = pop_df_reset['individual'].dropna().unique()
+            ind_labels = [str(i) for i in all_inds]
+            # Default: select uploaded individual if present, else first
+            default_ind = 0
+            if uploaded_file is not None and 'YOU' in ind_labels:
+                default_ind = ind_labels.index('YOU')
+            selected_ind = st.selectbox(
+                "Select an individual:",
+                ind_labels,
+                index=default_ind,
+                key="popdist_individual_select"
+            )
+            selected_group = None
         else:
-            default_idx = 0
-
-        selected_label = st.selectbox(
-            "Select a population group:",
-            group_labels,
-            index=default_idx)
-        selected_group = group_map[selected_label]
+            # Group mode (original)
+            # Count sample size for each group
+            group_sizes = pop_df_reset.groupby('group').size().to_dict()
+            pop_groups = pop_df_reset['group'].dropna().unique()
+            # Create labels: show (n=) only for non-uploaded groups
+            group_labels = []
+            for g in pop_groups:
+                if g == 'YOU':
+                    group_labels.append(g)
+                else:
+                    group_labels.append(f"{g} (n={group_sizes.get(g, 0)})")
+            group_map = dict(zip(group_labels, pop_groups))
+            # Auto-select "YOU" if it exists, otherwise first group
+            you_label = next(
+                (label for label, g in group_map.items() if g == 'YOU'), None)
+            if uploaded_file is not None and you_label:
+                default_idx = group_labels.index(you_label)
+            else:
+                default_idx = 0
+            selected_label = st.selectbox(
+                "Select a population group:",
+                group_labels,
+                index=default_idx,
+                key="popdist_group_select"
+            )
+            selected_group = group_map[selected_label]
 
         # Distance metric selection
         metric_options = {
@@ -578,23 +611,17 @@ else:
         )
         dist_metric = metric_options[dist_metric_label]
 
-        # Prepare scaled data for all populations
-        # Encode genotypes for all data (reference + uploaded)
+        # Prepare scaled data for all populations/individuals
         pop_encoded = pop_df_reset.copy()
 
         # Add genotype columns from the original data
-        # For reference data, get from df_ref_only
-        # For uploaded data, get from uploaded data
         ref_mask = pop_df_reset['source'] == 'existing'
         if ref_mask.any():
-            # Map reference individuals to their genotype data
             ref_individuals = pop_df_reset[ref_mask]['individual'].values
             ref_data_subset = df_ref_only[df_ref_only['individual'].isin(
                 ref_individuals)]
-            # Add genotype columns
             for col in valid_cols:
                 if col in ref_data_subset.columns:
-                    # Create mapping from individual to genotype
                     ind_to_geno = dict(
                         zip(ref_data_subset['individual'], ref_data_subset[col]))
                     pop_encoded.loc[ref_mask, col] = pop_df_reset.loc[ref_mask, 'individual'].map(
@@ -607,7 +634,6 @@ else:
                 up_individuals = pop_df_reset[up_mask]['individual'].values
                 up_data_subset = df_up_only[df_up_only['individual'].isin(
                     up_individuals)]
-                # Add genotype columns
                 for col in valid_cols:
                     if col in up_data_subset.columns:
                         ind_to_geno = dict(
@@ -625,8 +651,8 @@ else:
 
         # Impute and scale using the same scaler as reference
         try:
-            pop_imputed = pd.DataFrame(
-                imputer.transform(pop_encoded[valid_cols]), columns=valid_cols)
+            pop_imputed = pd.DataFrame(imputer.transform(
+                pop_encoded[valid_cols]), columns=valid_cols)
             pop_scaled = pd.DataFrame(scaler.transform(
                 pop_imputed), columns=valid_cols)
         except Exception as e:
@@ -635,56 +661,92 @@ else:
 
         all_scaled = np.asarray(pop_scaled)
 
-        # Map DataFrame indices to numpy array row indices
-        idx_map = {idx: i for i, idx in enumerate(pop_df_reset.index)}
-        group_indices = {g: [
-            idx_map[idx] for idx in pop_df_reset.index[pop_df_reset['group'] == g].tolist()] for g in pop_groups}
-        # Compute mean vector for each group
-        group_means = {g: all_scaled[group_indices[g], :].mean(
-            axis=0) for g in pop_groups}
-        selected_vec = group_means[selected_group].reshape(1, -1)
-        all_vecs = np.stack([group_means[g] for g in pop_groups])
-        if dist_metric != "mahalanobis":
+        if compare_individuals:
+            # Individual-to-individual distance
+            inds = pop_df_reset['individual'].tolist()
+            selected_idx = inds.index(selected_ind)
+            selected_vec = all_scaled[selected_idx].reshape(1, -1)
+            # Compute distance to all other individuals
             from scipy.spatial.distance import cdist
-            dists = cdist(selected_vec, all_vecs,
+            dists = cdist(selected_vec, all_scaled,
                           metric=dist_metric).flatten()
-        else:
-            from scipy.spatial.distance import mahalanobis
-            cov = np.cov(all_scaled, rowvar=False)
-            try:
-                inv_cov = np.linalg.inv(cov)
-            except np.linalg.LinAlgError:
-                cov += np.eye(cov.shape[0]) * 1e-8
-                inv_cov = np.linalg.inv(cov)
-            dists = np.array([
-                mahalanobis(selected_vec.flatten(), all_vecs[i], inv_cov)
-                for i in range(all_vecs.shape[0])
-            ])
-
-        st.markdown(
-            """
-            <div style='margin:0.8em 0;'>
-              <div style='background:var(--tm-card-bg); border:1px solid var(--tm-card-border); border-radius:0.9em; padding:0.9em 1.1em; max-width:100%'>
-                <div style='font-weight:700; color:var(--tm-primary); margin-bottom:0.35em;'>What is Population Distance?</div>
-                <div style='color:var(--tm-muted); font-size:0.98em; line-height:1.35;'>
-                  <div>• Mean genotype per group (SNPs standardized).</div>
-                  <div>• Compare group means using the chosen metric (Euclidean or Manhattan).</div>
-                  <div>• Populations are ranked by genetic similarity (smaller distance = more similar).</div>
-                  <div style='margin-top:0.45em; color:var(--tm-sub); font-size:0.95em;'>Uses the same trait-associated SNPs as the PCA.</div>
+            dist_df = pd.DataFrame({
+                'Individual': inds,
+                'Distance': dists,
+                'Group': pop_df_reset['group'].tolist()
+            })
+            # Exclude the selected individual itself
+            dist_df = dist_df[dist_df['Individual'] != selected_ind]
+            dist_df = dist_df.sort_values('Distance')
+            st.markdown(
+                """
+                <div style='margin:0.8em 0;'>
+                  <div style='background:var(--tm-card-bg); border:1px solid var(--tm-card-border); border-radius:0.9em; padding:0.9em 1.1em; max-width:100%'>
+                    <div style='font-weight:700; color:var(--tm-primary); margin-bottom:0.35em;'>What is Individual Distance?</div>
+                    <div style='color:var(--tm-muted); font-size:0.98em; line-height:1.35;'>
+                      <div>• Each row is a single individual (reference or uploaded).</div>
+                      <div>• Distance is computed between the selected individual and all others.</div>
+                      <div>• Smaller distance = more similar genotype profile.</div>
+                      <div style='margin-top:0.45em; color:var(--tm-sub); font-size:0.95em;'>Uses the same trait-associated SNPs as the PCA.</div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        # Add sample size for each group
-        group_sizes = {g: len(group_indices[g]) for g in pop_groups}
-        dist_df = pd.DataFrame({
-            'Population': pop_groups,
-            'Distance': dists,
-            'Sample Size': [group_sizes[g] for g in pop_groups]
-        })
-        # Exclude the selected population itself
-        dist_df = dist_df[dist_df['Population'] != selected_group]
-        dist_df = dist_df.sort_values('Distance')
-        st.dataframe(dist_df, use_container_width=True)
+                """,
+                unsafe_allow_html=True
+            )
+            st.dataframe(dist_df, width='stretch')
+        else:
+            # Group-to-group (original)
+            # Map DataFrame indices to numpy array row indices
+            idx_map = {idx: i for i, idx in enumerate(pop_df_reset.index)}
+            group_indices = {g: [
+                idx_map[idx] for idx in pop_df_reset.index[pop_df_reset['group'] == g].tolist()] for g in pop_groups}
+            # Compute mean vector for each group
+            group_means = {g: all_scaled[group_indices[g], :].mean(
+                axis=0) for g in pop_groups}
+            selected_vec = group_means[selected_group].reshape(1, -1)
+            all_vecs = np.stack([group_means[g] for g in pop_groups])
+            if dist_metric != "mahalanobis":
+                from scipy.spatial.distance import cdist
+                dists = cdist(selected_vec, all_vecs,
+                              metric=dist_metric).flatten()
+            else:
+                from scipy.spatial.distance import mahalanobis
+                cov = np.cov(all_scaled, rowvar=False)
+                try:
+                    inv_cov = np.linalg.inv(cov)
+                except np.linalg.LinAlgError:
+                    cov += np.eye(cov.shape[0]) * 1e-8
+                    inv_cov = np.linalg.inv(cov)
+                dists = np.array([
+                    mahalanobis(selected_vec.flatten(), all_vecs[i], inv_cov)
+                    for i in range(all_vecs.shape[0])
+                ])
+
+            st.markdown(
+                """
+                <div style='margin:0.8em 0;'>
+                  <div style='background:var(--tm-card-bg); border:1px solid var(--tm-card-border); border-radius:0.9em; padding:0.9em 1.1em; max-width:100%'>
+                    <div style='font-weight:700; color:var(--tm-primary); margin-bottom:0.35em;'>What is Population Distance?</div>
+                    <div style='color:var(--tm-muted); font-size:0.98em; line-height:1.35;'>
+                      <div>• Mean genotype per group (SNPs standardized).</div>
+                      <div>• Compare group means using the chosen metric (Euclidean or Manhattan).</div>
+                      <div>• Populations are ranked by genetic similarity (smaller distance = more similar).</div>
+                      <div style='margin-top:0.45em; color:var(--tm-sub); font-size:0.95em;'>Uses the same trait-associated SNPs as the PCA.</div>
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            # Add sample size for each group
+            group_sizes = {g: len(group_indices[g]) for g in pop_groups}
+            dist_df = pd.DataFrame({
+                'Population': pop_groups,
+                'Distance': dists,
+                'Sample Size': [group_sizes[g] for g in pop_groups]
+            })
+            # Exclude the selected population itself
+            dist_df = dist_df[dist_df['Population'] != selected_group]
+            dist_df = dist_df.sort_values('Distance')
+            st.dataframe(dist_df, width='stretch')
