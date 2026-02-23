@@ -556,19 +556,34 @@ else:
 
         # --- Comparison Mode Selection ---
         if compare_individuals:
-            # Individual mode: let user select individuals
-            all_inds = pop_df_reset['individual'].dropna().unique()
-            ind_labels = [str(i) for i in all_inds]
+            # Individual mode: show individuals grouped by their population group
+            groups_order = pop_df_reset['group'].fillna('Unknown').unique()
+            ind_labels = []
+            ind_map = {}
+            for g in groups_order:
+                members = pop_df_reset[pop_df_reset['group'].fillna(
+                    'Unknown') == g]['individual'].dropna().unique().tolist()
+                if not members:
+                    continue
+                for ind in members:
+                    label = f"{g} — {ind}"
+                    ind_labels.append(label)
+                    ind_map[label] = ind
+
             # Default: select uploaded individual if present, else first
-            default_ind = 0
-            if uploaded_file is not None and 'YOU' in ind_labels:
-                default_ind = ind_labels.index('YOU')
-            selected_ind = st.selectbox(
+            default_idx = 0
+            you_label = next(
+                (lbl for lbl, iid in ind_map.items() if iid == 'YOU'), None)
+            if uploaded_file is not None and you_label:
+                default_idx = ind_labels.index(you_label)
+
+            selected_label = st.selectbox(
                 "Select an individual:",
                 ind_labels,
-                index=default_ind,
+                index=default_idx,
                 key="popdist_individual_select"
             )
+            selected_ind = ind_map[selected_label]
             selected_group = None
         else:
             # Group mode (original)
