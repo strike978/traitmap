@@ -180,9 +180,22 @@ dimred_method = st.sidebar.radio(
 # PCA options grouped under its own expander
 with st.sidebar.expander("PCA Options", expanded=(dimred_method == "PCA")):
     if dimred_method == "PCA":
+        pca_input_type = st.selectbox(
+            "PCA Input Type:",
+            ["Raw Genotypes", "Mean Allele Frequencies by Group"],
+            index=0,
+            help="Raw Genotypes: Use individual sample genotypes directly. Mean Allele Frequencies: Calculate population-level mean frequencies first.",
+            key="pca_input_select"
+        )
+        standardize_pca = st.checkbox(
+            "Standardize PCA input (z-score)", value=True,
+            help="If checked, PCA input (raw genotypes or group means) is z-scored before PCA. If unchecked, raw values are used.",
+            key="standardize_pca_checkbox"
+        )
         show_dominant_ancestry = st.checkbox(
             "Color by dominant ancestry", value=False, key="color_by_ancestry")
     else:
+        pca_input_type = "Raw Genotypes"
         show_dominant_ancestry = False
 
 # Population Distance options grouped under its own expander
@@ -331,30 +344,114 @@ def encode_geno_vec(geno_col, ref_allele):
     return out
 
 
+def encode_genotype_dosage(genotype, ref_allele):
+    """Encode a single genotype to dosage format"""
+    if pd.isna(genotype) or genotype is None or str(genotype) == 'nan':
+        return np.nan
+    genotype_str = str(genotype)
+    if len(genotype_str) != 2:
+        return np.nan
+    if ref_allele is None:
+        ref_allele = genotype_str[0]
+    return sum(1 for a in genotype_str if a != ref_allele)
+
+
 df_ref_encoded = df_ref_only.copy()
 for col in geno_cols:
     df_ref_encoded[col] = encode_geno_vec(df_ref_only[col], ref_alleles[col])
 
-# Impute and scale reference data
-df_ref_pca = df_ref_encoded[geno_cols].copy()
-# Remove columns that are all NaN
-valid_cols = [col for col in geno_cols if not df_ref_pca[col].isna().all()]
-df_ref_pca = df_ref_pca[valid_cols]
+# PCA input type logic - choose between individual genotypes or group means
+if pca_input_type == "Mean Allele Frequencies by Group":
+    # Calculate group means from individual genotype data
+    # Filter to only HGDP and 1000 Genomes populations for group means
+    df_ref_filtered = df_ref_encoded[df_ref_encoded['source'].isin(
+        ['HGDP', '1000g'])].copy()
 
-imputer = SimpleImputer(strategy='mean')
-df_ref_imputed = pd.DataFrame(
-    imputer.fit_transform(df_ref_pca), columns=valid_cols)
+    # Create group column for aggregation
+    group_col = df_ref_filtered.apply(
+        lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
+            row.get('group_full', '')).strip() != '' else row['group'],
+        axis=1
+    )
+    df_ref_filtered['group_for_mean'] = group_col
 
-scaler = StandardScaler()
-df_ref_scaled = pd.DataFrame(
-    scaler.fit_transform(df_ref_imputed), columns=valid_cols)
+    # Remove columns that are all NaN before grouping
+    valid_cols = [
+        col for col in geno_cols if not df_ref_encoded[col].isna().all()]
+
+    # Group by population and calculate mean allele frequencies
+    group_means = df_ref_filtered.groupby('group_for_mean')[valid_cols].mean()
+
+    # Include uploaded data if present
+    if uploaded_file is not None:
+        df_up_only = df[df['__source__'] == 'uploaded'].copy()
+        if not df_up_only.empty:
+            # Encode uploaded sample genotypes to dosages
+            df_up_encoded = df_up_only.copy()
+            for col in valid_cols:
+                if col in df_up_only.columns:
+                    df_up_encoded[col] = df_up_only[col].apply(
+                        lambda g: encode_genotype_dosage(g, ref_alleles.get(col)))
+                else:
+                    df_up_encoded[col] = np.nan
+
+            # Add uploaded sample as its own group
+            up_group_name = 'YOU'
+            up_row = df_up_encoded[valid_cols].iloc[0]
+            up_row.name = up_group_name
+
+            # Combine with reference group means
+            group_means = pd.concat([group_means, up_row.to_frame().T])
+
+    # Use group means as input to PCA
+    df_ref_pca = group_means.copy()
+    imputer = SimpleImputer(strategy='mean')
+    df_ref_imputed = pd.DataFrame(
+        imputer.fit_transform(df_ref_pca), columns=valid_cols)
+    if 'standardize_pca' in locals() and standardize_pca:
+        scaler = StandardScaler()
+        df_ref_scaled = pd.DataFrame(
+            scaler.fit_transform(df_ref_imputed), columns=valid_cols, index=group_means.index)
+    else:
+        df_ref_scaled = df_ref_imputed.copy()
+
+    # For downstream, create a base_df with group info
+    base_df_groups = pd.DataFrame({
+        'group': group_means.index,
+        'individual': group_means.index,  # For groups, individual = group name
+        'source': ['group_mean' if g != 'YOU' else 'uploaded' for g in group_means.index]
+    })
+
+else:
+    # Use individual-level genotypes (existing logic)
+    # Remove columns that are all NaN
+    valid_cols = [
+        col for col in geno_cols if not df_ref_encoded[col].isna().all()]
+    df_ref_pca = df_ref_encoded[valid_cols].copy()
+
+# Impute and scale data (for individual genotype mode)
+if pca_input_type != "Mean Allele Frequencies by Group":
+    imputer = SimpleImputer(strategy='mean')
+    df_ref_imputed = pd.DataFrame(
+        imputer.fit_transform(df_ref_pca), columns=valid_cols)
+    if 'standardize_pca' in locals() and standardize_pca:
+        scaler = StandardScaler()
+        df_ref_scaled = pd.DataFrame(
+            scaler.fit_transform(df_ref_imputed), columns=valid_cols)
+    else:
+        df_ref_scaled = df_ref_imputed.copy()
 
 # Show quick metrics about the dataset
-ref_sample_count = df_ref_only.shape[0]
-valid_snp_count = len(valid_cols)
-col1, col2 = st.columns(2)
-col1.metric("Reference Samples", f"{ref_sample_count}")
-col2.metric("SNPs Used", f"{valid_snp_count}")
+if pca_input_type == "Mean Allele Frequencies by Group":
+    group_count = df_ref_scaled.shape[0]
+    col1, col2 = st.columns(2)
+    col1.metric("Groups", f"{group_count}")
+    col2.metric("SNPs Used", f"{len(valid_cols)}")
+else:
+    ref_sample_count = df_ref_only.shape[0]
+    col1, col2 = st.columns(2)
+    col1.metric("Reference Samples", f"{ref_sample_count}")
+    col2.metric("SNPs Used", f"{len(valid_cols)}")
 
 
 # --- Dimensionality reduction: PCA or Dendrogram (only one runs) ---
@@ -365,15 +462,20 @@ if dimred_method == "PCA":
     ref_pca_result = pca.fit_transform(df_ref_scaled)
 
 # Create base dataframe for both methods
-base_df = pd.DataFrame({
-    'group': df_ref_only.apply(
-        lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
-            row.get('group_full', '')).strip() != '' else row['group'],
-        axis=1
-    ),
-    'individual': df_ref_only['individual'].values,
-    'source': df_ref_only['__source__'].values
-})
+if pca_input_type == "Mean Allele Frequencies by Group":
+    # Use the group-based dataframe we created earlier
+    base_df = base_df_groups.copy()
+else:
+    # Use individual-level dataframe
+    base_df = pd.DataFrame({
+        'group': df_ref_only.apply(
+            lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
+                row.get('group_full', '')).strip() != '' else row['group'],
+            axis=1
+        ),
+        'individual': df_ref_only['individual'].values,
+        'source': df_ref_only['__source__'].values
+    })
 
 # Add PCA coordinates (only fill the one in use)
 if ref_pca_result is not None:
@@ -384,16 +486,50 @@ else:
     base_df['PC2'] = np.nan
 
 # Merge with admixture data
-base_df = base_df.merge(
-    admix_data[['individual'] + ancestry_components],
-    on='individual',
-    how='left'
-)
+if pca_input_type == "Mean Allele Frequencies by Group":
+    # For group means, we need to calculate group-level admixture means
+    # First create a mapping from individual to group
+    df_ref_with_groups = df_ref_only[df_ref_only['source'].isin(
+        ['HGDP', '1000g'])].copy()
+    df_ref_with_groups['group_for_admix'] = df_ref_with_groups.apply(
+        lambda row: row['group_full'] if pd.notna(row.get('group_full', None)) and str(
+            row.get('group_full', '')).strip() != '' else row['group'],
+        axis=1
+    )
+
+    # Merge with admixture data and calculate group means
+    df_with_admix = df_ref_with_groups.merge(
+        admix_data[['individual'] + ancestry_components],
+        on='individual',
+        how='left'
+    )
+
+    # Calculate mean admixture for each group
+    group_admix_means = df_with_admix.groupby(
+        'group_for_admix')[ancestry_components].mean()
+
+    # Merge group admixture means with base_df
+    base_df = base_df.merge(
+        group_admix_means,
+        left_on='group',
+        right_index=True,
+        how='left'
+    )
+else:
+    # For individual mode, merge directly
+    base_df = base_df.merge(
+        admix_data[['individual'] + ancestry_components],
+        on='individual',
+        how='left'
+    )
 
 # Calculate dominant ancestry for coloring
 
 
 def get_dominant_ancestry(row):
+    # Special handling for uploaded sample in group means mode
+    if row.get('group') == 'YOU' or row.get('source') == 'uploaded':
+        return 'YOU'
     ancestry_values = {comp: row[comp]
                        for comp in ancestry_components if pd.notna(row[comp])}
     if ancestry_values:
@@ -407,6 +543,9 @@ base_df['dominant_ancestry'] = base_df.apply(get_dominant_ancestry, axis=1)
 
 
 def format_admixture_tooltip(row):
+    # Special handling for uploaded sample in group means mode
+    if row.get('group') == 'YOU' or row.get('source') == 'uploaded':
+        return 'Uploaded Sample'
     ancestry_values = []
     for comp in ancestry_components:
         if pd.notna(row[comp]) and row[comp] > 0:
@@ -418,8 +557,8 @@ def format_admixture_tooltip(row):
 
 base_df['admixture_tooltip'] = base_df.apply(format_admixture_tooltip, axis=1)
 
-# If uploaded data exists, project it onto PCA
-if uploaded_file is not None and dimred_method == "PCA":
+# If uploaded data exists, project it onto PCA (only for individual genotype mode)
+if uploaded_file is not None and dimred_method == "PCA" and pca_input_type == "Raw Genotypes":
     df_up_only = df[df['__source__'] == 'uploaded'].copy()
     df_up_encoded = df_up_only.copy()
     for col in valid_cols:
@@ -452,7 +591,12 @@ if uploaded_file is not None and dimred_method == "PCA":
 else:
     plot_df = base_df.copy()
 
-if len(plot_df) < 2:
+# Initialize plot_df for non-PCA methods
+if dimred_method != "PCA":
+    plot_df = pd.DataFrame()
+
+# Check if we have enough data for visualization
+if dimred_method == "PCA" and len(plot_df) < 2:
     st.error('Not enough data for visualization.')
 else:
     filtered_df = plot_df.copy()
@@ -462,7 +606,8 @@ else:
     # Choose axes and title based on method
     if dimred_method == "PCA":
         x_col, y_col = 'PC1', 'PC2'
-        plot_title = f'PCA: PC1 vs PC2 (Colored by {"Dominant Ancestry" if show_dominant_ancestry else "Population Group"})'
+        input_type_label = "Group Means" if pca_input_type == "Mean Allele Frequencies by Group" else "Individual Genotypes"
+        plot_title = f'PCA ({input_type_label}): PC1 vs PC2 (Colored by {"Dominant Ancestry" if show_dominant_ancestry else "Population Group"})'
         hover_data = {
             'group': True,
             'admixture_tooltip': True,
