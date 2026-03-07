@@ -824,6 +824,11 @@ else:
             else:
                 pop_encoded[col] = None
 
+        # For group mode, convert dosages to allele frequencies
+        if not compare_individuals:
+            for col in valid_cols:
+                pop_encoded[col] = pop_encoded[col] / 2
+
         # Impute and scale using the same scaler as reference
         try:
             pop_imputed = pd.DataFrame(imputer.transform(
