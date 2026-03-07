@@ -408,6 +408,7 @@ if pca_input_type == "Mean Allele Frequencies by Group":
     imputer = SimpleImputer(strategy='mean')
     df_ref_imputed = pd.DataFrame(
         imputer.fit_transform(df_ref_pca), columns=valid_cols)
+    scaler = None
     if 'standardize_pca' in locals() and standardize_pca:
         scaler = StandardScaler()
         df_ref_scaled = pd.DataFrame(
@@ -434,6 +435,7 @@ if pca_input_type != "Mean Allele Frequencies by Group":
     imputer = SimpleImputer(strategy='mean')
     df_ref_imputed = pd.DataFrame(
         imputer.fit_transform(df_ref_pca), columns=valid_cols)
+    scaler = None
     if 'standardize_pca' in locals() and standardize_pca:
         scaler = StandardScaler()
         df_ref_scaled = pd.DataFrame(
@@ -571,8 +573,11 @@ if uploaded_file is not None and dimred_method == "PCA" and pca_input_type == "R
     try:
         df_up_imputed = pd.DataFrame(
             imputer.transform(df_up_pca), columns=valid_cols)
-        df_up_scaled = pd.DataFrame(scaler.transform(
-            df_up_imputed), columns=valid_cols)
+        if scaler is not None:
+            df_up_scaled = pd.DataFrame(scaler.transform(
+                df_up_imputed), columns=valid_cols)
+        else:
+            df_up_scaled = df_up_imputed.copy()
     except Exception as e:
         st.error(f"Error processing uploaded sample: {str(e)}")
         st.stop()
