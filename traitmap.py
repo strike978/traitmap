@@ -384,8 +384,9 @@ if pca_input_type == "Mean Allele Frequencies by Group":
     valid_cols = [
         col for col in geno_cols if not df_ref_encoded[col].isna().all()]
 
-    # Group by population and calculate mean allele frequencies
-    group_means = df_ref_filtered.groupby('group_for_mean')[valid_cols].mean()
+    # Group by population and calculate mean allele frequencies (mean dosage divided by 2)
+    group_means = df_ref_filtered.groupby('group_for_mean')[
+        valid_cols].mean() / 2
 
     # Include uploaded data if present
     if uploaded_file is not None:
@@ -402,7 +403,8 @@ if pca_input_type == "Mean Allele Frequencies by Group":
 
             # Add uploaded sample as its own group
             up_group_name = 'YOU'
-            up_row = df_up_encoded[valid_cols].iloc[0]
+            # Convert uploaded dosages to allele frequencies
+            up_row = df_up_encoded[valid_cols].iloc[0] / 2
             up_row.name = up_group_name
 
             # Combine with reference group means
