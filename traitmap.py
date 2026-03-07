@@ -821,8 +821,11 @@ else:
         try:
             pop_imputed = pd.DataFrame(imputer.transform(
                 pop_encoded[valid_cols]), columns=valid_cols)
-            pop_scaled = pd.DataFrame(scaler.transform(
-                pop_imputed), columns=valid_cols)
+            if scaler is not None:
+                pop_scaled = pd.DataFrame(scaler.transform(
+                    pop_imputed), columns=valid_cols)
+            else:
+                pop_scaled = pop_imputed.copy()
         except Exception as e:
             st.error(f"Error processing population data: {str(e)}")
             st.stop()
