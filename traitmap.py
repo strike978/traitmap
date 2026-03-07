@@ -188,7 +188,7 @@ with st.sidebar.expander("PCA Options", expanded=(dimred_method == "PCA")):
             key="pca_input_select"
         )
         standardize_pca = st.checkbox(
-            "Standardize PCA input (z-score)", value=True,
+            "Standardize PCA input (z-score)", value=False,
             help="If checked, PCA input (raw genotypes or group means) is z-scored before PCA. If unchecked, raw values are used.",
             key="standardize_pca_checkbox"
         )
