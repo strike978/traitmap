@@ -914,8 +914,8 @@ else:
                   <div style='background:var(--tm-card-bg); border:1px solid var(--tm-card-border); border-radius:0.9em; padding:0.9em 1.1em; max-width:100%'>
                     <div style='font-weight:700; color:var(--tm-primary); margin-bottom:0.35em;'>What is Population Distance?</div>
                     <div style='color:var(--tm-muted); font-size:0.98em; line-height:1.35;'>
-                      <div>• Mean genotype per group (SNPs standardized).</div>
-                      <div>• Compare group means using the chosen metric (Euclidean or Manhattan).</div>
+                      <div>• Mean allele frequency per group (SNPs standardized if option is checked).</div>
+                      <div>• Compare group allele frequencies using the chosen metric (Euclidean or Manhattan).</div>
                       <div>• Populations are ranked by genetic similarity (smaller distance = more similar).</div>
                       <div style='margin-top:0.45em; color:var(--tm-sub); font-size:0.95em;'>Uses the same trait-associated SNPs as the PCA.</div>
                     </div>
