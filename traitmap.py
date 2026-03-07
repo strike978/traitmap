@@ -205,8 +205,13 @@ with st.sidebar.expander("Population Distance Options", expanded=(dimred_method 
             "Compare Individuals (not Groups)", value=False,
             help="Toggle to compare individual samples instead of population groups.",
             key="compare_individuals_checkbox")
+        standardize_popdist = st.checkbox(
+            "Standardize Population Distance input (z-score)", value=False,
+            help="If checked, input for population distance is z-scored (standardized). If unchecked, raw values are used.",
+            key="standardize_popdist_checkbox")
     else:
         compare_individuals = False
+        standardize_popdist = False
 
 st.sidebar.caption(
     "Tip: Use the controls above to explore and filter the data.")
@@ -821,9 +826,11 @@ else:
         try:
             pop_imputed = pd.DataFrame(imputer.transform(
                 pop_encoded[valid_cols]), columns=valid_cols)
-            if scaler is not None:
-                pop_scaled = pd.DataFrame(scaler.transform(
-                    pop_imputed), columns=valid_cols)
+            # Standardize for population distance if option is checked
+            if standardize_popdist:
+                scaler_popdist = StandardScaler()
+                pop_scaled = pd.DataFrame(
+                    scaler_popdist.fit_transform(pop_imputed), columns=valid_cols)
             else:
                 pop_scaled = pop_imputed.copy()
         except Exception as e:
