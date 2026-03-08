@@ -149,6 +149,25 @@ else:
 
 
 # --- SNP Category Selection ---
+
+# --- Pigmentation SNPs Option ---
+PIGMENTATION_SNPS = {
+    'HERC2': ['rs1667394', 'rs1129038', 'rs12913832'],
+    'SLC24A5': ['rs1426654'],
+    'SLC45A2': ['rs16891982'],
+    'OCA2': ['rs4778138'],
+    'TYRP1': ['rs683', 'rs1408799', 'rs16929340', 'rs1408794'],
+    'KITLG': ['rs642742', 'rs114873', 'rs12821256']
+}
+pigmentation_snps = [snp for snps in PIGMENTATION_SNPS.values()
+                     for snp in snps]
+
+plot_pigmentation_only = st.sidebar.checkbox(
+    "Plot only pigmentation markers",
+    value=False,
+    help="Restrict analysis to well-studied pigmentation SNPs (HERC2, SLC24A5, SLC45A2, OCA2, TYRP1, KITLG)."
+)
+
 snps_cat_path = 'snps_cat.csv'
 if os.path.exists(snps_cat_path):
     snps_cat_df = pd.read_csv(snps_cat_path, low_memory=False)
@@ -167,6 +186,10 @@ if os.path.exists(snps_cat_path):
 else:
     selected_category = 'All'
     snps_in_category = None
+
+# Override SNPs if pigmentation-only option is selected
+if plot_pigmentation_only:
+    snps_in_category = pigmentation_snps
 
 
 # --- Analysis Method Selection and Per-Method Options ---
